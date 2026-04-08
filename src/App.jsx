@@ -193,7 +193,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{ width: 28, height: 28, borderRadius: 7, background: "linear-gradient(135deg,#0f766e,#14b8a6)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12 }}>🩸</div>
           <div>
-            <h1 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>BloodWork Tracker</h1>
+            <h1 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>Blood Work Tracker</h1>
             <span style={{ fontSize: 10, color: "#94a3b8" }}>{sorted.length} tests • {activeCount} active markers{hidden.length > 0 ? ` • ${hidden.length} cols hidden` : ""}</span>
           </div>
         </div>
