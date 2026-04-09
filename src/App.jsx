@@ -139,6 +139,8 @@ export default function App() {
   const [ec, setEc] = useState(null);
   const [ev, setEv] = useState("");
   const [selBio, setSelBio] = useState(null);
+  const [noteEdit, setNoteEdit] = useState(null); // { date, key, text } for cell notes
+  const [bioNoteText, setBioNoteText] = useState("");
 
   useEffect(() => { (async () => { try { const r = await window.storage.get("bloodwork-data-v2"); if (r?.value) setData(JSON.parse(r.value)); } catch {} setLoading(false); })(); }, []);
   const save = useCallback(async d => { setData(d); try { await window.storage.set("bloodwork-data-v2", JSON.stringify(d)); } catch {} }, []);
@@ -177,6 +179,21 @@ export default function App() {
   const confirmP = () => { if (!parsed || parsed.error) return; const d = parsed.date || new Date().toISOString().split("T")[0]; const ex = data.tests.find(t => t.date === d); if (ex) save({ tests: data.tests.map(t => t.date === d ? { ...t, values: { ...t.values, ...parsed.values } } : t) }); else save({ tests: [...data.tests, { date: d, values: parsed.values }] }); setParsed(null); setUpText(""); setModal(null); };
 
   const doBulk = () => { if (!bulkText.trim()) return; try { const p = JSON.parse(bulkText); if (Array.isArray(p)) { const m = [...data.tests]; p.forEach(n => { const i = m.findIndex(t => t.date === n.date); if (i >= 0) m[i] = { ...m[i], values: { ...m[i].values, ...n.values } }; else m.push(n); }); save({ tests: m }); } setBulkText(""); setModal(null); } catch { alert("Invalid JSON."); } };
+
+  const saveCellNote = (date, key, text) => {
+    save({ ...data, tests: data.tests.map(t => {
+      if (t.date !== date) return t;
+      const notes = { ...(t.notes || {}) };
+      if (text && text.trim()) notes[key] = text.trim(); else delete notes[key];
+      return { ...t, notes };
+    }) });
+    setNoteEdit(null);
+  };
+  const saveBioNote = (key, text) => {
+    const bn = { ...(data.biomarkerNotes || {}) };
+    if (text && text.trim()) bn[key] = text.trim(); else delete bn[key];
+    save({ ...data, biomarkerNotes: bn });
+  };
 
   const upCell = (date, key, val) => { const n = val === "" ? null : parseFloat(val); save({ tests: data.tests.map(t => { if (t.date === date) { const v = { ...t.values }; if (n == null) delete v[key]; else v[key] = n; return { ...t, values: v }; } return t; }) }); setEc(null); };
 
@@ -244,20 +261,22 @@ export default function App() {
               const latest = visV[0], prev = visV.find((v, i) => i > 0 && v !== null) ?? null;
               const st = gs(latest, bio.low, bio.high);
               return (
-                <tr key={bio.key} style={{ cursor: "pointer" }} onClick={() => setSelBio(selBio === bio.key ? null : bio.key)}>
+                <tr key={bio.key} style={{ cursor: "pointer" }} onClick={() => { const k = selBio === bio.key ? null : bio.key; setSelBio(k); setBioNoteText(k ? (data.biomarkerNotes?.[k] || "") : ""); }}>
                   <td style={{ ...STD, left: 0, zIndex: 10, minWidth: 160, background: "#fff", borderRight: "1px solid #f1f5f9" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 3, fontWeight: 500, fontSize: 12 }}><Dot s={st} />{bio.name}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 3, fontWeight: 500, fontSize: 12 }}><Dot s={st} />{bio.name}{data.biomarkerNotes?.[bio.key] && <span title={data.biomarkerNotes[bio.key]} onClick={e => { e.stopPropagation(); setSelBio(bio.key); setBioNoteText(data.biomarkerNotes[bio.key] || ""); }} style={{ fontSize: 10, marginLeft: 3, cursor: "pointer", opacity: 0.7 }}>📝</span>}</div>
                     <div style={{ fontSize: 9, color: "#94a3b8", marginLeft: 11 }}>{bio.category}</div>
                   </td>
                   <td style={{ ...STD, left: 160, zIndex: 10, minWidth: 74, background: "#fff", borderRight: "1px solid #f1f5f9", fontFamily: m, fontSize: 9, color: "#64748b" }}>{bio.low}–{bio.high}<br /><span style={{ fontSize: 8 }}>{bio.unit}</span></td>
                   <td style={{ ...STD, left: 234, zIndex: 10, minWidth: 190, background: "#fff", borderRight: "2px solid #e2e8f0" }}><Spark values={allV.slice().reverse()} lo={bio.low} hi={bio.high} /></td>
                   {vis.map((t, ti) => {
                     const v = t.values[bio.key], cs = gs(v, bio.low, bio.high), ed = ec === `${t.date}-${bio.key}`;
+                    const cellNote = t.notes?.[bio.key];
                     return (
                       <td key={t.date} style={{ padding: "6px 5px", textAlign: "center", fontFamily: m, fontSize: 11, background: (cs === "high" || cs === "low") ? "rgba(239,68,68,0.03)" : "transparent", borderBottom: "1px solid rgba(241,245,249,0.8)", borderRight: "1px solid rgba(241,245,249,0.4)" }}
-                        onDoubleClick={e => { e.stopPropagation(); setEc(`${t.date}-${bio.key}`); setEv(v != null ? String(v) : ""); }}>
+                        onDoubleClick={e => { e.stopPropagation(); setEc(`${t.date}-${bio.key}`); setEv(v != null ? String(v) : ""); }}
+                        onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setNoteEdit({ date: t.date, key: bio.key, text: cellNote || "" }); }}>
                         {ed ? <input autoFocus value={ev} onChange={e => setEv(e.target.value)} onBlur={() => upCell(t.date, bio.key, ev)} onKeyDown={e => { if (e.key === "Enter") upCell(t.date, bio.key, ev); if (e.key === "Escape") setEc(null); }} onClick={e => e.stopPropagation()} style={{ width: 50, padding: "1px 3px", textAlign: "center", fontSize: 10, fontFamily: m, border: "2px solid #0f766e", borderRadius: 3, outline: "none" }} />
-                          : v != null ? <span><Dot s={cs} /><span style={{ color: cs !== "ok" && cs !== "none" ? "#ef4444" : "inherit", fontWeight: cs !== "ok" && cs !== "none" ? 600 : 400 }}>{v}</span>{ti === 0 && <Arrow cur={v} prev={prev} />}</span>
+                          : v != null ? <span><Dot s={cs} /><span style={{ color: cs !== "ok" && cs !== "none" ? "#ef4444" : "inherit", fontWeight: cs !== "ok" && cs !== "none" ? 600 : 400 }}>{v}</span>{ti === 0 && <Arrow cur={v} prev={prev} />}{cellNote && <span title={cellNote} onClick={e => { e.stopPropagation(); setNoteEdit({ date: t.date, key: bio.key, text: cellNote }); }} style={{ fontSize: 9, marginLeft: 2, cursor: "pointer", opacity: 0.7 }}>📝</span>}</span>
                           : <span style={{ color: "#e2e8f0" }}>—</span>}
                       </td>
                     );
@@ -270,23 +289,40 @@ export default function App() {
         </table>
       </div>
 
-      {sorted.length > 0 && <div style={{ fontSize: 10, color: "#94a3b8", textAlign: "center", padding: 6 }}>Double-click to edit • Click row for detail • Sparklines include all dates</div>}
+      {sorted.length > 0 && <div style={{ fontSize: 10, color: "#94a3b8", textAlign: "center", padding: 6 }}>Double-click to edit value • Right-click to add note • Click row for detail</div>}
 
       {selBio && (() => {
         const bio = BIOMARKER_DEFS.find(b => b.key === selBio); if (!bio) return null;
         const vals = sorted.map(t => ({ d: t.date, v: t.values[bio.key] ?? null })).filter(x => x.v !== null);
         return (
-          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, maxHeight: "32vh", background: "#fff", borderTop: "2px solid #0f766e", padding: "12px 14px", overflowY: "auto", boxShadow: "0 -4px 20px rgba(0,0,0,0.1)", zIndex: 100 }}>
+          <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, maxHeight: "42vh", background: "#fff", borderTop: "2px solid #0f766e", padding: "12px 14px", overflowY: "auto", boxShadow: "0 -4px 20px rgba(0,0,0,0.1)", zIndex: 100 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
               <h3 style={{ margin: 0, fontSize: 14 }}>{bio.name} <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 400 }}>{bio.unit} • {bio.low}–{bio.high}</span></h3>
               <button onClick={() => setSelBio(null)} style={{ background: "none", border: "none", fontSize: 16, cursor: "pointer", color: "#94a3b8" }}>✕</button>
             </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {vals.map(x => <div key={x.d} style={{ padding: "4px 10px", borderRadius: 7, fontSize: 11, background: gs(x.v, bio.low, bio.high) === "ok" ? "rgba(34,197,94,0.05)" : "rgba(239,68,68,0.05)", border: `1px solid ${gs(x.v, bio.low, bio.high) === "ok" ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)"}` }}><div style={{ fontFamily: m, fontWeight: 600, fontSize: 14 }}>{x.v}</div><div style={{ fontSize: 9, color: "#94a3b8" }}>{new Date(x.d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}</div></div>)}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              {vals.map(x => { const n = sorted.find(t => t.date === x.d)?.notes?.[bio.key]; return <div key={x.d} style={{ padding: "4px 10px", borderRadius: 7, fontSize: 11, background: gs(x.v, bio.low, bio.high) === "ok" ? "rgba(34,197,94,0.05)" : "rgba(239,68,68,0.05)", border: `1px solid ${gs(x.v, bio.low, bio.high) === "ok" ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)"}` }}><div style={{ fontFamily: m, fontWeight: 600, fontSize: 14 }}>{x.v}{n && <span title={n} onClick={() => setNoteEdit({ date: x.d, key: bio.key, text: n })} style={{ fontSize: 10, marginLeft: 3, cursor: "pointer", opacity: 0.7 }}>📝</span>}</div><div style={{ fontSize: 9, color: "#94a3b8" }}>{new Date(x.d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}</div></div>; })}
+            </div>
+            <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: 6 }}>
+              <label style={LBL}>📝 Biomarker Note</label>
+              <textarea value={bioNoteText} onChange={e => setBioNoteText(e.target.value)} onFocus={() => { if (!bioNoteText) setBioNoteText(data.biomarkerNotes?.[bio.key] || ""); }} placeholder="Add a general note for this biomarker..." style={{ ...TA, minHeight: 50 }} onClick={e => e.stopPropagation()} />
+              <button onClick={() => saveBioNote(bio.key, bioNoteText)} style={{ ...B("#0f766e"), marginTop: 4 }}>Save Note</button>
+              {data.biomarkerNotes?.[bio.key] && <button onClick={() => { saveBioNote(bio.key, ""); setBioNoteText(""); }} style={{ ...B("#ef4444"), marginTop: 4, marginLeft: 4 }}>Delete</button>}
             </div>
           </div>
         );
       })()}
+
+      {noteEdit && <Modal onClose={() => setNoteEdit(null)}>
+        <h2 style={{ margin: "0 0 6px", fontSize: 15 }}>📝 Cell Note</h2>
+        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>{BIOMARKER_DEFS.find(b => b.key === noteEdit.key)?.name} — {new Date(noteEdit.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</div>
+        <textarea autoFocus value={noteEdit.text} onChange={e => setNoteEdit({ ...noteEdit, text: e.target.value })} placeholder="Add note for this specific reading..." style={TA} />
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button onClick={() => saveCellNote(noteEdit.date, noteEdit.key, noteEdit.text)} style={{ ...B("#0f766e"), flex: 1 }}>Save</button>
+          <button onClick={() => saveCellNote(noteEdit.date, noteEdit.key, "")} style={{ ...B("#ef4444"), flex: 1 }}>Delete</button>
+          <button onClick={() => setNoteEdit(null)} style={{ ...B("#64748b"), flex: 1 }}>Cancel</button>
+        </div>
+      </Modal>}
 
       {/* MODALS */}
       {modal === "cols" && <Modal onClose={() => setModal(null)}>
